@@ -1,0 +1,24 @@
+{
+  "class_names": [
+    "glioma",
+    "meningioma",
+    "notumor",
+    "pituitary"
+  ],
+  "class_indices": {
+    "glioma": 0,
+    "meningioma": 1,
+    "notumor": 2,
+    "pituitary": 3
+  },
+  "img_size": 224,
+  "backbone": "spinenet",
+  "test_accuracy": 0.8604118824005127,
+  "test_loss": 0.3770212233066559,
+  "severity_thresholds": {
+    "high": 0.85,
+    "moderate": 0.6
+  },
+  "total_params": 3505476,
+  "epochs_trained": 25
+}

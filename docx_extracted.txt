@@ -1,0 +1,255 @@
+Brain Tumor Classification Web App
+Merged Implementation Plan
+Mini Project 1.2  |  React + FastAPI + PostgreSQL + TensorFlow/Keras
+
+Overview
+A full-stack web application that classifies brain MRI scans into 4 tumor types using a CNN trained on a real labelled dataset. The app provides a severity/risk assessment in place of explicit staging, since the dataset does not contain stage labels. Predictions are stored in PostgreSQL and surfaced in a history view.
+
+Tech Stack
+Layer
+Choice
+Rationale
+Frontend
+React (Vite) + TypeScript
+Fast dev server, type safety, component reuse
+Backend
+FastAPI (Python)
+Async, auto docs, easy file upload handling
+Database
+PostgreSQL + SQLAlchemy
+Reliable, relational, easy history queries
+ML Framework
+TensorFlow / Keras
+MobileNetV2 transfer learning, saves as .h5
+Model
+MobileNetV2 + custom head
+4-class softmax (type); severity from confidence
+Styling
+Tailwind / CSS Modules
+Dark medical theme, glassmorphism cards
+
+⚠ NOTE: Staging limitation: The dataset contains tumor type labels (glioma, meningioma, pituitary, no_tumor) but NO explicit stage labels. Staging is presented as a risk severity assessment (Low / Moderate / High) derived from prediction confidence. If a separate staging dataset becomes available, a second model head can be added.
+
+1. Dataset
+The existing dataset under Data/ is structured as folder-per-class with separate Training/ and Testing/ splits:
+
+Class
+Training Images
+Testing Images
+Glioma
+1,321
+300
+Meningioma
+1,339
+306
+No Tumor
+1,595
+405
+Pituitary
+1,457
+300
+Total
+5,712
+1,311
+
+Data lives under Data/Training/<class>/ and Data/Testing/<class>/
+No separate stage folder needed — severity is inferred from model confidence
+Class imbalance is mild; use class_weight in Keras or oversample meningioma/glioma if accuracy drops
+
+2. Project Structure
+Uses the clean top-level separation from Mini Project 1.2 with the detailed file breakdown from the Antigravity plan:
+
+d:\Projects\Mini Project 1.2\
+├── Data/                        # Existing dataset (Training/ + Testing/)
+├── frontend/                    # React (Vite) + TypeScript
+│   ├── src/
+│   │   ├── App.tsx
+│   │   ├── pages/               # Home, Upload, Results, History
+│   │   ├── components/          # UploadForm, ResultCard, HistoryTable, Navbar
+│   │   └── api/                 # Axios client for backend
+│   ├── package.json
+│   └── vite.config.ts
+├── backend/                     # Python FastAPI
+│   ├── app/
+│   │   ├── main.py              # Routes: /predict, /health, /history
+│   │   ├── model_loader.py      # Load .h5 model, run inference
+│   │   ├── database.py          # SQLAlchemy + PostgreSQL
+│   │   └── schemas.py           # Pydantic request/response schemas
+│   ├── models/                  # Saved model artifacts
+│   │   ├── brain_tumor_model.h5
+│   │   └── config.json          # Class names, severity thresholds
+│   ├── uploads/                 # Uploaded scan storage
+│   ├── requirements.txt
+│   └── Dockerfile               # Optional
+├── ml/                          # Training pipeline (top-level, independent)
+│   ├── train.py                 # Train MobileNetV2, save model + config
+│   ├── config.py                # Classes, paths, hyperparams
+│   ├── dataset.py               # Dataset loader, augmentation
+│   └── requirements.txt         # tensorflow, pillow, etc.
+├── docker-compose.yml           # backend + postgres (optional)
+└── README.md
+
+3. Database (PostgreSQL)
+Schema
+Single table, no user authentication:
+
+CREATE TABLE scan_records (
+id               SERIAL PRIMARY KEY,
+filename         VARCHAR(255) NOT NULL,
+original_filename VARCHAR(255),
+tumor_type       VARCHAR(50)  NOT NULL,   -- glioma | meningioma | pituitary | no_tumor
+confidence       FLOAT        NOT NULL,   -- 0.0 to 1.0
+severity         VARCHAR(20),             -- Low | Moderate | High
+details          JSONB,                   -- full softmax scores per class
+created_at       TIMESTAMP DEFAULT NOW()
+);
+
+Configuration
+Connection via env var: DATABASE_URL=postgresql://user:pass@localhost:5432/brain_tumor_db
+Tables created on startup (SQLAlchemy create_all) for dev; use Alembic for prod migrations
+GET /history returns last N records ordered by created_at DESC
+
+4. ML Pipeline (ml/)
+Model Architecture
+Base: MobileNetV2 pretrained on ImageNet (frozen initially, fine-tuned last 20 layers)
+Input: 224x224 RGB images, normalized to [-1, 1] (MobileNetV2 standard)
+Head: GlobalAveragePooling2D -> Dense(128, relu) -> Dropout(0.3) -> Dense(4, softmax)
+Loss: categorical_crossentropy | Optimizer: Adam(lr=1e-4) | Metric: accuracy
+Output: backend/models/brain_tumor_model.h5 + config.json
+
+Severity Mapping
+Since no stage labels exist, severity is derived from confidence at inference time:
+
+Condition
+Confidence
+Severity
+Tumor detected (any type)
+>= 0.85
+High
+Tumor detected (any type)
+0.60 - 0.84
+Moderate
+Tumor detected (any type)
+< 0.60
+Low (review recommended)
+No tumor
+Any
+None
+
+Training Script (ml/train.py)
+Reads from Data/Training/ and Data/Testing/ using ImageDataGenerator.flow_from_directory
+Augmentation: rotation_range=20, horizontal_flip, zoom_range=0.1 (training only)
+Train/val split: 80/20 from Training folder; Testing folder used as held-out test set
+Saves model weights + config.json (class indices, severity thresholds) to backend/models/
+Target accuracy: >85% on test set before wiring to API
+
+5. Backend (FastAPI)
+Endpoints
+Method
+Route
+Description
+POST
+/api/predict
+Upload MRI image, run inference, save to DB, return result
+GET
+/api/history
+Return last N scan records (default 50)
+GET
+/api/history/{id}
+Single prediction record detail
+DELETE
+/api/history/{id}
+Delete a scan record
+GET
+/health
+Readiness check
+
+Key Implementation Notes
+model_loader.py loads brain_tumor_model.h5 + config.json once at startup (lifespan event)
+Preprocessing must exactly match training: resize to 224x224, MobileNetV2 preprocess_input
+CORS: allow http://localhost:5173 (Vite dev server)
+Uploaded files saved to uploads/ with UUID filename to avoid collisions
+POST /api/predict response shape: { tumor_type, confidence, severity, all_scores, image_url }
+
+6. Frontend (React + TypeScript)
+Pages
+Page
+Route
+Description
+Home
+/
+Hero section, project overview, dataset stats, call-to-action
+Upload
+/upload
+Drag-and-drop file picker, image preview, submit button, loading state
+Results
+/results
+Tumor type, confidence bar, severity badge, uploaded scan thumbnail
+History
+/history
+Table of past scans with sort, filter, delete per row
+
+Design System
+Theme: Dark medical — deep navy/charcoal base (#0F172A), teal/cyan accents (#0BC5EA)
+Cards: Glassmorphism (backdrop-filter: blur, semi-transparent backgrounds)
+Confidence bar: Animated fill, color-coded (green < 60%, orange 60-84%, red >= 85%)
+Severity badge: Pill component — grey (None), green (Low), orange (Moderate), red (High)
+Typography: Inter (Google Fonts), accessible contrast ratios
+Icons: Lucide React (medical iconography)
+
+7. Running the Stack
+Prerequisites
+PostgreSQL installed and running on localhost:5432
+Python 3.9+ with pip
+Node.js 18+ with npm
+Create database: CREATE DATABASE brain_tumor_db;
+
+Step-by-Step
+Step 1 — Train the model:
+cd ml
+pip install -r requirements.txt
+python train.py
+# Copies model to ../backend/models/brain_tumor_model.h5
+
+Step 2 — Start the backend:
+cd backend
+pip install -r requirements.txt
+set DATABASE_URL=postgresql://postgres:yourpass@localhost:5432/brain_tumor_db
+uvicorn app.main:app --reload
+
+Step 3 — Start the frontend:
+cd frontend
+npm install
+npm run dev
+# Open http://localhost:5173
+
+8. Verification Plan
+Automated Checks
+Model accuracy (run after training):
+cd ml && python train.py
+# Expect: test accuracy > 85%
+
+API smoke test:
+curl -X POST http://localhost:8000/api/predict \
+-F "file=@../Data/Testing/glioma/Te-gl_0010.jpg"
+# Expect: { "tumor_type": "glioma", "confidence": 0.xx, "severity": "High" }
+
+Frontend build test:
+cd frontend && npm run build
+# Expect: build completes with no errors
+
+Manual QA Checklist
+Upload a glioma scan from Data/Testing/glioma/ — verify correct prediction + High severity
+Upload a no_tumor scan — verify tumor_type = no_tumor + severity = None
+Navigate to History — confirm scan record appears with correct values
+Delete a record from History — confirm it disappears and DB row is removed
+Test on mobile viewport — verify responsive layout holds
+
+9. Optional Enhancements
+Docker Compose: one service each for API, Postgres, and frontend (nginx)
+ONNX export: Convert model for lighter footprint via onnxruntime in backend
+Second model head: Add stage classification if a staging dataset becomes available
+API key auth: Simple header-based key for demo access restriction
+Grad-CAM overlay: Highlight regions the model focused on (medical explainability)
+
+Mini Project 1.2 — Merged Plan (Antigravity details + clean structure)

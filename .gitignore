@@ -1,0 +1,21 @@
+# Environments
+venv/
+.env
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Node modules
+node_modules/
+dist/
+.eslintcache
+
+# Project specific
+backend/uploads/
+backend/brain_tumor_db.sqlite
+backend/venv/
+ml/venv/
+.DS_Store
+
+# Data (it's huge)
+Data/
