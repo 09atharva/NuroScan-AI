@@ -13,7 +13,10 @@ dist/
 # Project specific
 backend/uploads/
 backend/brain_tumor_db.sqlite
+backend/brain_tumor_db.db
+backend/backend_log.txt
 backend/venv/
+backend/venv_new/
 ml/venv/
 .DS_Store
 
