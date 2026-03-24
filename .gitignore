@@ -22,3 +22,4 @@ ml/venv/
 
 # Data (it's huge)
 Data/
+backend/brain_tumor.db

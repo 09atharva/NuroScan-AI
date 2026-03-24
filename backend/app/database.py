@@ -20,7 +20,17 @@ DATABASE_URL = os.getenv(
     "postgresql://postgres:postgres@localhost:5432/brain_tumor_db"
 )
 
-engine = create_engine(DATABASE_URL)
+# Neon / Aiven / Heroku provide URLs starting with postgres:// but
+# SQLAlchemy requires postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+# Use SSL for cloud-hosted databases (those with non-localhost hosts)
+connect_args = {}
+if "localhost" not in DATABASE_URL and "127.0.0.1" not in DATABASE_URL:
+    connect_args = {"sslmode": "require"}
+
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
