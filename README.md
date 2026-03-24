@@ -2,6 +2,10 @@
 
 A full-stack web application that classifies brain MRI scans into **4 tumor types** using a **SpineNet**-based CNN, with severity assessment.
 
+## 🚀 Deployment
+
+For production deployment instructions using Render (Backend/DB) and Vercel (Frontend), see [DEPLOYMENT.md](./DEPLOYMENT.md).
+
 ## Tech Stack
 
 | Layer | Technology |

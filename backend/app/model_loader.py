@@ -1,10 +1,15 @@
 """
 Model loader — loads the trained brain tumor classification model at startup
 and provides inference utilities.
+
+IMPORTANT: Preprocessing MUST match the training pipeline exactly:
+  - Resize to 224x224
+  - Apply tf.keras.applications.efficientnet.preprocess_input
+  - This scales [0, 255] → [-1, 1] to match ImageNet pretrained weights
 """
 import json
 import os
-from typing import Dict, Tuple, Optional
+from typing import Dict, Optional
 
 import numpy as np
 from PIL import Image
@@ -21,9 +26,10 @@ class TumorModelLoader:
         self.img_size: int = 224
         self.severity_thresholds: dict = {}
         self.backbone: str = "unknown"
+        self.confidence_threshold: float = 0.50
         self._loaded = False
 
-    def load(self, model_path: str, config_path: str):
+    def load(self, model_path: str, config_path: str) -> bool:
         """Load model weights and config from disk."""
         if not os.path.exists(model_path):
             print(f"⚠️  Model not found at {model_path}. Run training first.")
@@ -52,6 +58,7 @@ class TumorModelLoader:
             print(f"✅ Model loaded successfully ({self.backbone} backbone)")
             print(f"   Classes: {self.class_names}")
             print(f"   Test accuracy: {self.config.get('test_accuracy', 'N/A')}")
+            print(f"   Training mode: {self.config.get('training_mode', 'N/A')}")
             return True
 
         except Exception as e:
@@ -65,12 +72,33 @@ class TumorModelLoader:
     def preprocess_image(self, image: Image.Image) -> np.ndarray:
         """
         Preprocess a PIL image for model inference.
-        Resizes to target size and normalizes to [0, 1].
+
+        Pipeline (MUST match training):
+          1. Convert to RGB
+          2. Resize to target size
+          3. Apply EfficientNet preprocess_input ([0,255] → [-1,1])
+
+        Args:
+            image: PIL Image of any size/mode.
+
+        Returns:
+            Numpy array of shape (1, img_size, img_size, 3).
         """
+        # Ensure RGB
         image = image.convert("RGB")
+
+        # Resize to model's expected input size
         image = image.resize((self.img_size, self.img_size))
-        img_array = np.array(image, dtype=np.float32) / 255.0
-        img_array = np.expand_dims(img_array, axis=0)  # Add batch dimension
+
+        # Convert to float32 array (keep [0, 255] range)
+        img_array = np.array(image, dtype=np.float32)
+
+        # Add batch dimension
+        img_array = np.expand_dims(img_array, axis=0)
+
+        # Apply EfficientNet preprocessing (scales [0,255] → [-1,1])
+        img_array = tf.keras.applications.efficientnet.preprocess_input(img_array)
+
         return img_array
 
     def predict(self, image: Image.Image) -> Dict:
@@ -82,13 +110,17 @@ class TumorModelLoader:
                 "tumor_type": str,
                 "confidence": float,
                 "severity": str,
-                "all_scores": {class_name: score, ...}
+                "all_scores": {class_name: score, ...},
+                "is_uncertain": bool,
             }
         """
         if not self._loaded:
             raise RuntimeError("Model not loaded. Run training first.")
 
+        # Preprocess (matches training pipeline)
         img_array = self.preprocess_image(image)
+
+        # Run inference
         predictions = self.model.predict(img_array, verbose=0)
         scores = predictions[0]
 
@@ -97,6 +129,9 @@ class TumorModelLoader:
         predicted_class = self.class_names[pred_idx]
         confidence = float(scores[pred_idx])
 
+        # Check if prediction is uncertain
+        is_uncertain = confidence < self.confidence_threshold
+
         # Build all scores dict
         all_scores = {
             name: round(float(scores[i]), 4)
@@ -104,19 +139,24 @@ class TumorModelLoader:
         }
 
         # Determine severity
-        severity = self._compute_severity(predicted_class, confidence)
+        severity = self._compute_severity(predicted_class, confidence, is_uncertain)
 
         return {
             "tumor_type": predicted_class,
             "confidence": round(confidence, 4),
             "severity": severity,
             "all_scores": all_scores,
+            "is_uncertain": is_uncertain,
         }
 
-    def _compute_severity(self, tumor_type: str, confidence: float) -> str:
+    def _compute_severity(self, tumor_type: str, confidence: float,
+                          is_uncertain: bool) -> str:
         """Map prediction to severity based on confidence thresholds."""
         if tumor_type == "notumor":
             return "None"
+
+        if is_uncertain:
+            return "Uncertain — requires manual review"
 
         high = self.severity_thresholds.get("high", 0.85)
         moderate = self.severity_thresholds.get("moderate", 0.60)

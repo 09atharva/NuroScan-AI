@@ -40,8 +40,9 @@ export default function UploadPage() {
             const result: PredictionResult = await uploadScan(file);
             // Navigate to results with the prediction data
             navigate('/results', { state: { result } });
-        } catch (err: any) {
-            setError(err.message || 'Prediction failed. Is the backend running?');
+        } catch (err: unknown) {
+            const errorMessage = err instanceof Error ? err.message : 'Prediction failed. Is the backend running?';
+            setError(errorMessage);
         } finally {
             setLoading(false);
         }
@@ -88,7 +89,7 @@ export default function UploadPage() {
                     <div className="spinner" />
                     <h3>Analyzing MRI Scan...</h3>
                     <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                        Running SpineNet inference — this may take a few seconds.
+                        Running EfficientNet inference — this may take a few seconds.
                     </p>
                 </div>
             )}

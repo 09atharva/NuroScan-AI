@@ -3,13 +3,17 @@ SQLAlchemy database setup and models for brain tumor classification.
 """
 import os
 from datetime import datetime
+from dotenv import load_dotenv
 
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, JSON, create_engine
 )
+
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
+# Load .env file
+load_dotenv()
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
